@@ -27,7 +27,9 @@ const escapeHtml = value => String(value ?? "").replace(/[&<>"']/g, char => ({"&
 const unitById = Object.fromEntries(units.map(unit => [unit.id, unit]));
 const questions = units.flatMap(unit => questionGroups[unit.id]);
 const questionById = Object.fromEntries(questions.map(question => [question.id, question]));
-const menu = [["trilhas", "map", "Trilhas"], ["revisao", "shuffle", "Revisão"], ["simulado", "clock", "Simulado"], ["progresso", "chart", "Progresso"]];
+const hasReadings = typeof readings !== "undefined";
+const readingById = new Map(hasReadings ? readings.map(reading => [reading.id, reading]) : []);
+const menu = [["trilhas", "map", "Trilhas"], ["textos", "book", "Textos"], ["revisao", "shuffle", "Revisão"], ["simulado", "clock", "Simulado"], ["progresso", "chart", "Progresso"]];
 const modeTitles = { random: "Prática aleatória", review: "Revisão espaçada", recovery: "Recuperar vidas" };
 const labels = { choice: "Múltipla escolha", fill: "Preenchimento", match: "Associação" };
 const root = document.querySelector("#app");
@@ -38,7 +40,8 @@ const intervals = [1, 3, 7, 14, 30];
 const storageKey = "elementos.study.v1";
 const fresh = () => ({
   xp: 0, hearts: maxHearts, refillAt: 0, days: [], completed: {}, history: {}, badges: [],
-  sound: true, track: "algebra", run: null, paused: null, examRun: null, exams: 0, perfect: false
+  sound: true, track: "algebra", run: null, paused: null, examRun: null, exams: 0, perfect: false,
+  contentEdition: 1
 });
 let storageAvailable = true;
 let state = fresh();
@@ -241,6 +244,42 @@ function viewHeader(title, subtitle) {
   return '<header class="section-head"><h1>'+title+'</h1><p>'+subtitle+'</p></header>';
 }
 
+function readingView(reading) {
+  return '<article class="reading-detail"><a class="back" href="#textos/tema/'+reading.topic+'">Voltar aos textos</a>'+
+    '<p class="reading-author">'+escapeHtml(reading.author)+'</p>'+
+    viewHeader(escapeHtml(reading.title), escapeHtml(reading.original))+
+    '<div class="card content-card reading-paper"><section aria-labelledby="reading-summary"><h2 id="reading-summary">Síntese</h2>'+
+    reading.summary.map(paragraph => '<p>'+escapeHtml(paragraph)+'</p>').join("")+
+    '</section><section aria-labelledby="reading-key-points"><h2 id="reading-key-points">Pontos-chave</h2><ul>'+
+    reading.points.map(point => '<li>'+escapeHtml(point)+'</li>').join("")+
+    '</ul></section><section aria-labelledby="reading-links"><h2 id="reading-links">Conexões com a disciplina</h2><ul>'+
+    reading.connections.map(connection => {
+      const related = readingById.get(connection.id);
+      return '<li>'+escapeHtml(connection.text)+(related ? '<a class="reading-related" href="#textos/'+related.id+'">'+escapeHtml(related.title)+icon("arrow")+'</a>' : "")+'</li>';
+    }).join("")+'</ul></section><p class="source reading-source"><strong>Fonte no material da disciplina</strong><br>'+escapeHtml(reading.source)+'</p></div></article>';
+}
+
+function readingsView(key, topicId) {
+  if (!hasReadings) return viewHeader("Textos da disciplina", "Atualize a página para carregar as leituras.");
+  const reading = readingById.get(key);
+  if (reading) return readingView(reading);
+  const selected = key === "tema" ? readingTopics.find(topic => topic.id === topicId) : null;
+  const topics = selected ? [selected] : readingTopics;
+  const filters = [{ id: "", title: "Todos os temas" }, ...readingTopics];
+  return viewHeader("Textos da disciplina", readings.length+" sínteses com pontos-chave e conexões com as aulas, as listas e a prova.")+
+    '<section class="card reading-guide"><span class="mini-symbol purple">'+icon("book")+'</span><div><h2>Da leitura ao exercício</h2>'+
+    '<p>A <strong>Lista 2A</strong> liga as matrizes de von Neumann ao sistema padrão. A <strong>Lista 3</strong> aplica a produção conjunta a máquinas e à renda da terra. A <strong>Lista 4</strong> pede que você explique a leitura clássica e os limites do modelo.</p></div></section>'+
+    '<div class="reading-filters" role="group" aria-label="Filtrar textos por tema">'+filters.map(topic =>
+      '<a href="#textos'+(topic.id ? '/tema/'+topic.id : "")+'"'+((selected?.id ?? "") === topic.id ? ' aria-current="true"' : "")+'>'+topic.title+'</a>'
+    ).join("")+'</div>'+
+    topics.map(topic => '<section class="reading-section"><h2>'+topic.title+'</h2><div class="reading-grid">'+
+      readings.filter(item => item.topic === topic.id).map(item => '<a class="card reading-card" href="#textos/'+item.id+'">'+
+        '<span class="reading-author">'+escapeHtml(item.author)+'</span><h3>'+escapeHtml(item.title)+'</h3>'+
+        '<p>'+escapeHtml(item.lead)+'</p><span class="reading-open">Ler síntese '+icon("arrow")+'</span></a>'
+      ).join("")+'</div></section>'
+    ).join("");
+}
+
 function trackView() {
   const selected = tracks.find(track => track.id === state.track) ?? tracks[0];
   const trail = units.filter(unit => unit.track === selected.id);
@@ -411,6 +450,38 @@ function finishRun(run) {
   run.result = { passed, title: resultTitle, description };
 }
 
+function advanceRun(run) {
+  if (run.index + 1 >= run.ids.length) {
+    finishRun(run);
+  } else {
+    run.index++;
+    run.feedback = null;
+    run.draft = null;
+    run.helped = false;
+  }
+}
+
+function updateCorrectedQuestions() {
+  if (!hasReadings || state.contentEdition >= 2) return;
+  for (const id of ["classicos-5", "von-4"]) {
+    if (state.history[id]) {
+      state.history[id].box = 0;
+      state.history[id].due = day();
+    }
+    for (const run of [state.run, state.paused]) {
+      if (!run || run.result || !run.ids.includes(id)) continue;
+      run.order[id] = shuffle(questionById[id].options ?? []);
+      if (run.ids[run.index] !== id) continue;
+      if (run.feedback) advanceRun(run);
+      else {
+        run.draft = null;
+        run.helped = false;
+      }
+    }
+  }
+  state.contentEdition = 2;
+}
+
 function clockText(deadline) {
   const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
   return String(Math.floor(seconds / 60)).padStart(2, "0")+":"+String(seconds % 60).padStart(2, "0");
@@ -452,8 +523,8 @@ function examView() {
 function render(focus = false, target = "#main") {
   refreshHearts();
   if (state.examRun && !state.examRun.finished && Date.now() >= state.examRun.deadline) finishExam(true);
-  const [page, key] = route();
-  const views = { trilhas: trackView, revisao: reviewView, progresso: progressView, simulado: examView, sessao: quizView };
+  const [page, key, topic] = route();
+  const views = { trilhas: trackView, textos: () => readingsView(key, topic), revisao: reviewView, progresso: progressView, simulado: examView, sessao: quizView };
   const unit = page === "licao" ? unitById[key] : null;
   const active = page === "sessao" ? (state.run?.mode === "lesson" ? "trilhas" : "revisao") : menu.some(([id]) => id === page) ? page : "trilhas";
   root.innerHTML = shell(unit && available(unit) ? unitView(unit) : (views[page] ?? trackView)(), active);
@@ -523,13 +594,7 @@ root.addEventListener("click", event => {
       break;
     case "next":
       if (!run?.feedback) break;
-      if (run.index + 1 >= run.ids.length) finishRun(run);
-      else {
-        run.index++;
-        run.feedback = null;
-        run.draft = null;
-        run.helped = false;
-      }
+      advanceRun(run);
       save();
       render(true, "#question");
       break;
@@ -632,5 +697,6 @@ setInterval(() => {
   } else if (refill) refill.textContent = clockText(state.refillAt);
 }, 1000);
 
+updateCorrectedQuestions();
 save();
 render();

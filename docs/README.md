@@ -7,6 +7,7 @@ Site estático para estudar para a segunda avaliação de ECO02113. A publicaç�
 | `index.html` | Entrada do site |
 | `style.css` | Layout responsivo e tipografia Geist |
 | `content.js` | Trilhas, lições, banco de questões, fontes e espelho do simulado |
+| `textos.js` | Sínteses dos artigos e dos textos de apoio, pontos-chave e conexões com a disciplina |
 | `app.js` | Sessões, revisão, XP, vidas, som, cronômetro e armazenamento local |
 | `.nojekyll` | Publicação estática no GitHub Pages |
 
@@ -26,5 +27,7 @@ O plano prevê quatro ou cinco questões e uma janela de 100 minutos para a aval
 ## Acesso
 
 [Abrir site publicado](https://cylindratis.github.io/elementos/)
+
+[Ver resumos de leitura](https://cylindratis.github.io/elementos/#textos)
 
 Para visualizar localmente, abra `index.html` ou sirva a pasta com `python -m http.server 8000 --directory docs`. O progresso e os rascunhos são armazenados no navegador usado para estudar.
